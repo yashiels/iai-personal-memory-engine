@@ -9,7 +9,7 @@ from iai_mcp.doctor._lifecycle_checks import (
     _BACKGROUND_LIVENESS_ALARM_ROWS,
     check_cc_background_liveness,
 )
-from iai_mcp.lifecycle_event_log import LifecycleEventLog
+from iai_mcp.lifecycle_event_log import _LIVENESS_SPEC_VERSION, LifecycleEventLog
 
 _NOW = datetime(2026, 8, 12, 15, 0, 0, tzinfo=timezone.utc)
 
@@ -150,6 +150,7 @@ class TestStarvedInputWarn:
             _seed_step_row(
                 log, "CLUSTER_REPLAY",
                 day_offset=offset, candidates=0, processed=0,
+                spec_version=_LIVENESS_SPEC_VERSION,
             )
 
         result = check_cc_background_liveness(now=_NOW)
@@ -220,6 +221,28 @@ class TestLegacyReconsolidationVersion:
         assert result.status == "PASS"
         assert result.passed is True
         assert "RECONSOLIDATION" in result.detail
+
+
+class TestLegacyClusterReplayVersion:
+    @pytest.mark.parametrize("spec_version", [1, 2])
+    def test_old_rows_are_unknown_not_fail(
+        self, lifecycle_log_dir: Path, spec_version: int,
+    ) -> None:
+        log = LifecycleEventLog(log_dir=lifecycle_log_dir)
+        for offset in range(_BACKGROUND_LIVENESS_ALARM_ROWS):
+            _seed_step_row(
+                log,
+                "CLUSTER_REPLAY",
+                day_offset=offset,
+                candidates=5,
+                processed=0,
+                spec_version=spec_version,
+            )
+
+        result = check_cc_background_liveness(now=_NOW)
+        assert result.status == "PASS"
+        assert result.passed is True
+        assert "CLUSTER_REPLAY" in result.detail
 
 
 class TestDisabledLiveness:
