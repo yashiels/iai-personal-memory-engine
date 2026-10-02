@@ -13,7 +13,11 @@ from iai_mcp.daemon import (
 )
 from iai_mcp.events import query_events
 from iai_mcp.lifecycle_state import default_state, save_state
-from iai_mcp.reconsolidation_critic import PROMPT_TEMPLATE, call_critic
+from iai_mcp.reconsolidation_critic import (
+    MAX_RECORDS_PER_CALL,
+    PROMPT_TEMPLATE,
+    call_critic,
+)
 from iai_mcp.lilli.cycle.sleep_pipeline import (
     STEP_PHASE,
     SleepPhase,
@@ -251,21 +255,30 @@ def test_R3_step_body_emits_reconsolidation_pass_event_with_correct_payload(
     body = events[0]["data"]
     expected_keys = {
         "records_scanned",
+        "records_submitted",
+        "records_evaluated",
         "records_reconsolidated",
         "critic_calls",
         "dry_run_mode",
+        "liveness_disabled",
     }
     assert set(body.keys()) == expected_keys, (
         f"event body keys must be {expected_keys}, got {set(body.keys())}"
     )
     assert isinstance(body["records_scanned"], int)
+    assert isinstance(body["records_submitted"], int)
+    assert isinstance(body["records_evaluated"], int)
     assert isinstance(body["records_reconsolidated"], int)
     assert isinstance(body["critic_calls"], int)
     assert isinstance(body["dry_run_mode"], bool)
+    assert isinstance(body["liveness_disabled"], bool)
     assert body["records_scanned"] >= 1
+    assert body["records_submitted"] >= 1
+    assert body["records_evaluated"] >= 1
     assert body["records_reconsolidated"] >= 1
     assert body["critic_calls"] >= 1
     assert body["dry_run_mode"] is False
+    assert body["liveness_disabled"] is False
 
 def test_R3_tier1_false_skips_critic_calls(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
@@ -299,6 +312,9 @@ def test_R3_tier1_false_skips_critic_calls(
     done, payload = pipeline._step_reconsolidation(interrupt_check=None)
     assert done is True
     assert payload["records_reconsolidated"] == 0
+    assert payload["records_submitted"] == 0
+    assert payload["records_evaluated"] == 0
+    assert payload["liveness_disabled"] is True
 
     events = query_events(store, kind="reconsolidation_pass", limit=10)
     assert len(events) == 1
@@ -306,6 +322,101 @@ def test_R3_tier1_false_skips_critic_calls(
     assert body["critic_calls"] == 0
     assert body["records_reconsolidated"] == 0
     assert body["records_scanned"] >= 1
+    assert body["records_submitted"] == 0
+    assert body["records_evaluated"] == 0
+    assert body["liveness_disabled"] is True
+
+
+@pytest.mark.parametrize(
+    ("score", "expected_evaluated"),
+    [(0.1, 1), (None, 0)],
+    ids=["low-score", "no-scores"],
+)
+def test_R3_enabled_liveness_counts_critic_evaluations(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    score: float | None,
+    expected_evaluated: int,
+) -> None:
+    monkeypatch.setenv("IAI_MCP_RECONSOLIDATION_DRY_RUN", "false")
+    monkeypatch.setenv("IAI_MCP_RECONSOLIDATION_TIER1", "true")
+    monkeypatch.setenv("IAI_MCP_LABILE_WINDOW_SEC", "3600")
+    monkeypatch.setenv("IAI_MCP_RECONSOLIDATION_ERROR_THRESHOLD", "0.5")
+
+    store = _make_store(tmp_path)
+    rec = _make_record(embed_dim=store._embed_dim)
+    store.insert(rec)
+    store.reinforce_record(rec.id, is_retrieval=True)
+
+    def _stub_batched(items: Any, *args: Any, **kwargs: Any) -> dict:
+        return {} if score is None else {rid: score for rid, _surface in items}
+
+    monkeypatch.setattr(
+        "iai_mcp.reconsolidation_critic.evaluate_batch_reconsolidation",
+        _stub_batched,
+    )
+
+    lifecycle_path = tmp_path / "lifecycle.json"
+    save_state(default_state(), lifecycle_path)
+    pipeline = SleepPipeline(store=store, lifecycle_state_path=lifecycle_path)
+
+    done, payload = pipeline._step_reconsolidation(interrupt_check=None)
+
+    assert done is True
+    assert payload["records_submitted"] == 1
+    assert payload["records_evaluated"] == expected_evaluated
+    assert payload["records_reconsolidated"] == 0
+    assert payload["liveness_disabled"] is False
+
+    events = query_events(store, kind="reconsolidation_pass", limit=10)
+    assert len(events) == 1
+    body = events[0]["data"]
+    assert body["records_submitted"] == 1
+    assert body["records_evaluated"] == expected_evaluated
+    assert body["records_reconsolidated"] == 0
+    assert body["liveness_disabled"] is False
+
+
+def test_R3_records_submitted_matches_critic_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("IAI_MCP_RECONSOLIDATION_DRY_RUN", "false")
+    monkeypatch.setenv("IAI_MCP_RECONSOLIDATION_TIER1", "true")
+
+    record_ids = [uuid.uuid4() for _ in range(MAX_RECORDS_PER_CALL + 7)]
+
+    class _Store:
+        def iter_record_columns(self, *args: Any, **kwargs: Any) -> Any:
+            return iter({"id": str(record_id)} for record_id in record_ids)
+
+        def get(self, record_id: uuid.UUID) -> Any:
+            return SimpleNamespace(literal_surface=str(record_id))
+
+    submitted: list[tuple[uuid.UUID, str]] = []
+
+    def _capturing_critic(items: Any, *args: Any, **kwargs: Any) -> dict:
+        submitted.extend(items)
+        return {}
+
+    monkeypatch.setattr(
+        "iai_mcp.reconsolidation_critic.evaluate_batch_reconsolidation",
+        _capturing_critic,
+    )
+    monkeypatch.setattr("iai_mcp.events.write_event", lambda *args, **kwargs: None)
+
+    pipeline = SleepPipeline(
+        store=_Store(),
+        lifecycle_state_path=tmp_path / "lifecycle.json",
+    )
+    done, payload = pipeline._step_reconsolidation(interrupt_check=None)
+
+    assert done is True
+    assert payload["records_scanned"] == MAX_RECORDS_PER_CALL + 7
+    assert payload["records_submitted"] == MAX_RECORDS_PER_CALL
+    assert payload["records_evaluated"] == 0
+    assert [record_id for record_id, _surface in submitted] == record_ids[
+        -MAX_RECORDS_PER_CALL:
+    ]
 
 def test_R4_schema_bypass_tagging_does_not_run_on_pattern_separation_skip(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,

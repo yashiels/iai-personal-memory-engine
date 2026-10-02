@@ -1198,12 +1198,18 @@ def _classify_liveness_window(rows: list[dict[str, Any]], alarm_rows: int) -> st
     for row in window:
         if row.get("error") is not None:
             continue
+        if row.get("liveness_disabled") is True:
+            continue
+        spec_version = row.get("liveness_spec_version")
+        if _row_identity(row) == "RECONSOLIDATION" and spec_version == 1:
+            saw_unknown = True
+            continue
         candidates = row.get("liveness_candidates")
         processed = row.get("liveness_processed")
         if (
             not isinstance(candidates, int)
             or not isinstance(processed, int)
-            or not row.get("liveness_spec_version")
+            or not spec_version
         ):
             saw_unknown = True
             continue

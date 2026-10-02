@@ -38,7 +38,7 @@ from iai_mcp.types import MemoryRecord  # noqa: E402
 # committed accidental edit would pass a base-less `git diff`; a
 # content-hash fence does not.
 _RECONSOLIDATION_STEP_SHA256 = (
-    "64eedfe0a0caa315eaf42d7c2f447690c9dcb8beaecbd8d17ca2fccd9db010ce"
+    "2d1296ebe0e0140024329bcb66aef4d89cb6059939b8c767542b8b9e59703316"
 )
 _RECONSOLIDATION_CRITIC_SHA256 = (
     "e71f7a5e79adb45b3bedb33db0d84ba1e44e5164887a8be59546bb0ab50d5047"

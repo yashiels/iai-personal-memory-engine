@@ -21,14 +21,20 @@ def step_reconsolidation(
     cfg = _load_reconsolidation_config()
 
     from iai_mcp.events import write_event
-    from iai_mcp.reconsolidation_critic import evaluate_batch_reconsolidation
+    from iai_mcp.reconsolidation_critic import (
+        MAX_RECORDS_PER_CALL,
+        evaluate_batch_reconsolidation,
+    )
     import uuid as _uuid
 
     now = self._now()
 
     records_scanned = 0
+    records_submitted = 0
+    records_evaluated = 0
     records_reconsolidated = 0
     critic_calls = 0
+    liveness_disabled = not bool(cfg.reconsolidation_tier1)
 
     # Stream only the id of each labile row instead of materializing the full
     # record corpus; the labile filter is already a SQL pushdown. The full
@@ -67,15 +73,18 @@ def step_reconsolidation(
         logger.debug("reconsolidation labile query failed: %s", exc)
 
     if want_pool and records_scanned > 0:
+        submitted_pool = pool[-MAX_RECORDS_PER_CALL:]
+        records_submitted = len(submitted_pool)
         try:
             errors_by_id = evaluate_batch_reconsolidation(
-                pool,
+                submitted_pool,
                 llm_enabled=True,
             )
         except Exception as exc:  # noqa: BLE001 -- critic must never raise into REM
             logger.debug("reconsolidation batch call raised: %s", exc)
             errors_by_id = {}
 
+        records_evaluated = len(errors_by_id)
         critic_calls = 1 if errors_by_id else 0
 
         for rid, err in errors_by_id.items():
@@ -102,15 +111,21 @@ def step_reconsolidation(
         "reconsolidation_pass",
         {
             "records_scanned": int(records_scanned),
+            "records_submitted": int(records_submitted),
+            "records_evaluated": int(records_evaluated),
             "records_reconsolidated": int(records_reconsolidated),
             "critic_calls": int(critic_calls),
             "dry_run_mode": bool(cfg.dry_run),
+            "liveness_disabled": liveness_disabled,
         },
         severity="info",
     )
 
     return True, {
         "records_scanned": int(records_scanned),
+        "records_submitted": int(records_submitted),
+        "records_evaluated": int(records_evaluated),
         "records_reconsolidated": int(records_reconsolidated),
         "dry_run": bool(cfg.dry_run),
+        "liveness_disabled": liveness_disabled,
     }

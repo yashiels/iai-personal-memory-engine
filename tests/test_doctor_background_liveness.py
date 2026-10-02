@@ -54,6 +54,7 @@ def _seed_step_row(
     processed: int | None,
     spec_version: int | None = 1,
     valence_saturated: int | None = None,
+    liveness_disabled: bool | None = None,
 ) -> None:
     event: dict = {
         "event": "sleep_step_completed",
@@ -65,6 +66,8 @@ def _seed_step_row(
         event["liveness_spec_version"] = spec_version
     if valence_saturated is not None:
         event["valence_saturated"] = valence_saturated
+    if liveness_disabled is not None:
+        event["liveness_disabled"] = liveness_disabled
     log.append(event, now=_ts(day_offset))
 
 
@@ -198,6 +201,49 @@ class TestMissingSpecVersion:
         assert "warm_bm25_nightly" in result.detail
 
 
+class TestLegacyReconsolidationVersion:
+    def test_version_one_rows_are_unknown_not_fail(
+        self, lifecycle_log_dir: Path,
+    ) -> None:
+        log = LifecycleEventLog(log_dir=lifecycle_log_dir)
+        for offset in range(_BACKGROUND_LIVENESS_ALARM_ROWS):
+            _seed_step_row(
+                log,
+                "RECONSOLIDATION",
+                day_offset=offset,
+                candidates=5,
+                processed=0,
+                spec_version=1,
+            )
+
+        result = check_cc_background_liveness(now=_NOW)
+        assert result.status == "PASS"
+        assert result.passed is True
+        assert "RECONSOLIDATION" in result.detail
+
+
+class TestDisabledLiveness:
+    def test_explicitly_disabled_rows_are_healthy(
+        self, lifecycle_log_dir: Path,
+    ) -> None:
+        log = LifecycleEventLog(log_dir=lifecycle_log_dir)
+        for offset in range(_BACKGROUND_LIVENESS_ALARM_ROWS):
+            _seed_step_row(
+                log,
+                "RECONSOLIDATION",
+                day_offset=offset,
+                candidates=5,
+                processed=0,
+                spec_version=2,
+                liveness_disabled=True,
+            )
+
+        result = check_cc_background_liveness(now=_NOW)
+        assert result.status == "PASS"
+        assert result.passed is True
+        assert "healthy" in result.detail
+
+
 class TestKnownCandidateUnknownEffect:
     def test_candidates_positive_processed_none_is_listed_not_silent_pass(
         self, lifecycle_log_dir: Path,
@@ -326,6 +372,25 @@ class TestSaturatedOnlyNightsAreHealthy:
 
 
 class TestGenuineStallStillFails:
+    def test_reconsolidation_submitted_without_scores_still_fails(
+        self, lifecycle_log_dir: Path,
+    ) -> None:
+        log = LifecycleEventLog(log_dir=lifecycle_log_dir)
+        for offset in range(_BACKGROUND_LIVENESS_ALARM_ROWS):
+            _seed_step_row(
+                log,
+                "RECONSOLIDATION",
+                day_offset=offset,
+                candidates=5,
+                processed=0,
+                spec_version=2,
+                liveness_disabled=False,
+            )
+
+        result = check_cc_background_liveness(now=_NOW)
+        assert result.status == "FAIL"
+        assert "RECONSOLIDATION" in result.detail
+
     def test_partial_saturation_with_unexplained_remainder_still_fails(
         self, lifecycle_log_dir: Path,
     ) -> None:

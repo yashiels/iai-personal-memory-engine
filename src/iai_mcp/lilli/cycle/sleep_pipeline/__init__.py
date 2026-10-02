@@ -104,7 +104,7 @@ _LIVENESS_SPEC: dict[SleepStep, tuple[str | None, str | None]] = {
     SleepStep.ERASURE_AGENT: (None, "count_quarantined"),
     SleepStep.CLUSTER_REPLAY: ("clusters_replayed", "sequential_pairs"),
     SleepStep.CRISIS_RECLUSTER: ("total_communities", "communities_dropped"),
-    SleepStep.RECONSOLIDATION: ("records_scanned", "records_reconsolidated"),
+    SleepStep.RECONSOLIDATION: ("records_submitted", "records_evaluated"),
     SleepStep.USER_MODEL_UPDATE: (None, None),
     SleepStep.DMN_REFLECTION: (None, None),
     SleepStep.CLUSTER_SUMMARY: (None, None),
