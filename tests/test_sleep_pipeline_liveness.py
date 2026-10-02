@@ -79,7 +79,7 @@ class TestCleanMapping:
         assert row["liveness_candidates"] == 4
         assert row["liveness_processed"] == 4
         assert row["liveness_disabled"] is False
-        assert row["liveness_spec_version"] == 2
+        assert row["liveness_spec_version"] == _LIVENESS_SPEC_VERSION
 
 
 class TestEmptyVsDead:
@@ -219,8 +219,10 @@ class TestClusterReplayCleanMapping:
             SleepStep.CLUSTER_REPLAY,
             1.0,
             clusters_replayed=6,
-            sequential_pairs=9,
+            total_pairs=12,
+            total_edges_boosted=9,
+            sequential_pairs=0,
         )
         row = _last_row(event_log)
-        assert row["liveness_candidates"] == 6
+        assert row["liveness_candidates"] == 12
         assert row["liveness_processed"] == 9

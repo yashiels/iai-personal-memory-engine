@@ -1204,6 +1204,9 @@ def _classify_liveness_window(rows: list[dict[str, Any]], alarm_rows: int) -> st
         if _row_identity(row) == "RECONSOLIDATION" and spec_version == 1:
             saw_unknown = True
             continue
+        if _row_identity(row) == "CLUSTER_REPLAY" and spec_version in (1, 2):
+            saw_unknown = True
+            continue
         candidates = row.get("liveness_candidates")
         processed = row.get("liveness_processed")
         if (

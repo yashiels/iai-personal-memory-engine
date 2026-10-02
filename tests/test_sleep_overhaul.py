@@ -234,6 +234,8 @@ def test_r3_cluster_replay_batches_intra_cluster_edges(
     done, payload = pipeline._step_cluster_replay(interrupt_check=None)
     assert done is True
     assert payload["clusters_replayed"] == 3
+    assert payload["total_pairs"] == 12
+    assert payload["total_edges_boosted"] == 12
     assert payload["dry_run"] is False
 
     events = query_events(store, kind="cluster_replay_pass", limit=5)

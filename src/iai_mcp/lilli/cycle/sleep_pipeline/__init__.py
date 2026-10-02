@@ -100,7 +100,7 @@ _LIVENESS_SPEC: dict[SleepStep, tuple[str | None, str | None]] = {
     SleepStep.OPTIMIZE_HIPPO: (None, None),
     SleepStep.HIPPO_CLEANUP: ("edges_scanned", "orphan_edges_deleted"),
     SleepStep.ERASURE_AGENT: (None, "count_quarantined"),
-    SleepStep.CLUSTER_REPLAY: ("clusters_replayed", "sequential_pairs"),
+    SleepStep.CLUSTER_REPLAY: ("total_pairs", "total_edges_boosted"),
     SleepStep.CRISIS_RECLUSTER: ("total_communities", "communities_dropped"),
     SleepStep.RECONSOLIDATION: ("records_submitted", "records_evaluated"),
     SleepStep.USER_MODEL_UPDATE: (None, None),

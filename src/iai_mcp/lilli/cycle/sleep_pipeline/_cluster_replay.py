@@ -174,6 +174,8 @@ def step_cluster_replay(
 
     return True, {
         "clusters_replayed": int(len(replay_clusters)),
+        "total_pairs": int(total_pairs),
+        "total_edges_boosted": int(edges_boosted),
         "sequential_pairs": int(seq_pairs_boosted),
         "dry_run": bool(dry_run),
     }
