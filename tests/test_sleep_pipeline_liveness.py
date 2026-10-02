@@ -51,12 +51,14 @@ class TestInjectionOrder:
             1.0,
             records_scanned=5,
             records_reconsolidated=2,
+            records_submitted=4,
+            records_evaluated=3,
             liveness_candidates="shadow-attempt",
             liveness_processed="shadow-attempt",
         )
         row = _last_row(event_log)
-        assert row["liveness_candidates"] == 5
-        assert row["liveness_processed"] == 2
+        assert row["liveness_candidates"] == 4
+        assert row["liveness_processed"] == 3
         assert row["liveness_spec_version"] == _LIVENESS_SPEC_VERSION
 
 
@@ -68,12 +70,16 @@ class TestCleanMapping:
             SleepStep.RECONSOLIDATION,
             1.0,
             records_scanned=5,
-            records_reconsolidated=2,
+            records_reconsolidated=0,
+            records_submitted=4,
+            records_evaluated=4,
+            liveness_disabled=False,
         )
         row = _last_row(event_log)
-        assert row["liveness_candidates"] == 5
-        assert row["liveness_processed"] == 2
-        assert row["liveness_spec_version"] == 1
+        assert row["liveness_candidates"] == 4
+        assert row["liveness_processed"] == 4
+        assert row["liveness_disabled"] is False
+        assert row["liveness_spec_version"] == 2
 
 
 class TestEmptyVsDead:
@@ -85,6 +91,8 @@ class TestEmptyVsDead:
             1.0,
             records_scanned=7,
             records_reconsolidated=0,
+            records_submitted=7,
+            records_evaluated=0,
         )
         row = _last_row(event_log)
         assert row["liveness_candidates"] == 7
@@ -98,6 +106,8 @@ class TestEmptyVsDead:
             1.0,
             records_scanned=0,
             records_reconsolidated=0,
+            records_submitted=0,
+            records_evaluated=0,
         )
         row = _last_row(event_log)
         assert row["liveness_candidates"] == 0
@@ -112,6 +122,7 @@ class TestMissingFieldDegradesToNone:
             SleepStep.RECONSOLIDATION,
             1.0,
             records_reconsolidated=2,
+            records_evaluated=2,
         )
         row = _last_row(event_log)
         assert row["liveness_candidates"] is None

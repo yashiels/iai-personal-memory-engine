@@ -15,7 +15,7 @@ DEFAULT_LOG_DIR: Path = Path.home() / ".iai-mcp" / "logs"
 #: schema version of the liveness_candidates/liveness_processed pair carried
 #: on sleep_step_completed and promise_liveness rows; bump when the
 #: candidate/processed semantics change, never for a field-mapping addition.
-_LIVENESS_SPEC_VERSION: int = 1
+_LIVENESS_SPEC_VERSION: int = 2
 
 KNOWN_EVENT_KINDS: frozenset[str] = frozenset(
     {
