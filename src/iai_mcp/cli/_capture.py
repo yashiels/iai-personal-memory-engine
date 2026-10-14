@@ -570,7 +570,10 @@ def cmd_capture_turn_deferred(args: argparse.Namespace) -> int:
         # when the new one has already regrown past the old length — the
         # length fence below stays as the backstop for fingerprint-less
         # legacy snapshots and same-stream truncation.
-        if (snap_fp and stream_fp and snap_fp != stream_fp) or prev_offset > total:
+        unterminated_fp = _hashlib.sha256(first_raw.rstrip(b"\r\n")).hexdigest()[:16]
+        if (
+            snap_fp and stream_fp and snap_fp not in {stream_fp, unterminated_fp}
+        ) or prev_offset > total:
             prev_offset = 0
             prev_pending = []
             prev_pending_recall = None
@@ -585,13 +588,17 @@ def cmd_capture_turn_deferred(args: argparse.Namespace) -> int:
         for line in new_lines:
             if emitted >= max_emit:
                 break
-            consumed += 1
             try:
                 _obj = _json.loads(line)
             except (ValueError, TypeError):
+                if not line.endswith("\n"):
+                    break
                 _obj = {}
             if not isinstance(_obj, dict):
+                if not line.endswith("\n"):
+                    break
                 _obj = {}
+            consumed += 1
             raw_objs.append(_obj)
             parsed = trailers.feed(
                 _obj, _parse_transcript_obj(_obj) if _obj else None
@@ -680,13 +687,11 @@ def cmd_capture_turn_deferred(args: argparse.Namespace) -> int:
         except Exception as exc:  # noqa: BLE001 -- best-effort, never blocks the turn capture
             logger.debug("capture-turn-deferred trajectory driver failed: %s", exc)
 
-        # Cheap expected==captured leg: no store access, single transcript
-        # pass, must fit the Stop hook's budget and must never sink capture.
         try:
-            from iai_mcp.capture import reconcile_session_capture
+            from iai_mcp.capture import reconcile_capture_delta
 
-            recon = reconcile_session_capture(
-                args.session_id, transcript_path=transcript, include_durable=False,
+            recon = reconcile_capture_delta(
+                new_lines[:consumed], emitted, pending_tools=prev_pending,
             )
             if recon["status"] == "partial":
                 logger.warning(

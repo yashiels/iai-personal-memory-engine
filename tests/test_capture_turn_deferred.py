@@ -410,7 +410,7 @@ def test_cheap_leg_reconcile_exception_does_not_break_capture(tmp_path, monkeypa
     def _boom(*args, **kwargs):
         raise RuntimeError("reconcile exploded")
 
-    monkeypatch.setattr(capture_mod, "reconcile_session_capture", _boom)
+    monkeypatch.setattr(capture_mod, "reconcile_capture_delta", _boom)
 
     transcript = tmp_path / "t.jsonl"
     transcript.write_text(

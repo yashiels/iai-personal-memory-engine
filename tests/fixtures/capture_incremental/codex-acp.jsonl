@@ -1,0 +1,11 @@
+{"type": "session_meta", "payload": {"id": "acp-fixture", "originator": "codex-acp", "source": "exec"}}
+{"timestamp": "2026-10-12T12:00:00Z", "type": "event_msg", "payload": {"type": "user_message", "message": "Synthetic ACP conversation turn 0 about incremental capture."}}
+{"timestamp": "2026-10-12T12:00:00Z", "type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Synthetic ACP conversation turn 0 about incremental capture."}]}}
+{"timestamp": "2026-10-12T12:00:01Z", "type": "event_msg", "payload": {"type": "assistant_message", "message": "Synthetic ACP conversation turn 1 about incremental capture."}}
+{"timestamp": "2026-10-12T12:00:01Z", "type": "response_item", "payload": {"type": "function_call", "name": "exec_command", "call_id": "call-1", "arguments": "{}"}}
+{"timestamp": "2026-10-12T12:00:01Z", "type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "Synthetic ACP conversation turn 1 about incremental capture."}]}}
+{"timestamp": "2026-10-12T12:00:02Z", "type": "event_msg", "payload": {"type": "user_message", "message": "Synthetic ACP conversation turn 2 about incremental capture."}}
+{"timestamp": "2026-10-12T12:00:02Z", "type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Synthetic ACP conversation turn 2 about incremental capture."}]}}
+{"timestamp": "2026-10-12T12:00:03Z", "type": "event_msg", "payload": {"type": "assistant_message", "message": "Synthetic ACP conversation turn 3 about incremental capture."}}
+{"timestamp": "2026-10-12T12:00:03Z", "type": "response_item", "payload": {"type": "function_call", "name": "exec_command", "call_id": "call-3", "arguments": "{}"}}
+{"timestamp": "2026-10-12T12:00:03Z", "type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "Synthetic ACP conversation turn 3 about incremental capture."}]}}
