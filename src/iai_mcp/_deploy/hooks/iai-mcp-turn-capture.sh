@@ -246,7 +246,10 @@ if transcript_path is not None:
     # truncation. Restarting at zero re-walks the new stream; replays dedup
     # on source-uuid idempotency keys where the host provides them and are
     # absorbed by the cosine gate for text-keyed hosts.
-    if (snap_fp and stream_fp and snap_fp != stream_fp) or prev > total:
+    unterminated_fp = hashlib.sha256(_first_raw.rstrip(b"\r\n")).hexdigest()[:16]
+    if (
+        snap_fp and stream_fp and snap_fp not in {stream_fp, unterminated_fp}
+    ) or prev > total:
         prev = 0
         pending_tools = []
 else:
@@ -297,6 +300,8 @@ def parse_line(raw):
     try:
         obj = json.loads(raw)
     except Exception:
+        return None
+    if not isinstance(obj, dict):
         return None
     if obj.get("type") == "response_item":
         # Codex rollout lines. function_call carries the tool name;
@@ -497,6 +502,13 @@ if total > prev:
         for raw in lines[prev:]:
             if emitted >= MAX_TURNS:
                 break
+            if not raw.endswith("\n"):
+                try:
+                    tail_obj = json.loads(raw)
+                except (ValueError, TypeError):
+                    break
+                if not isinstance(tail_obj, dict):
+                    break
             consumed += 1
             parsed = parse_line(raw)
             if parsed is None:

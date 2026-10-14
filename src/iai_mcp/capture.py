@@ -2962,6 +2962,39 @@ def _count_transcript_turns_independent(transcript_path: Path) -> tuple[int, int
     return expected, parse_failed
 
 
+def reconcile_capture_delta(
+    lines: list[str],
+    captured_turns: int,
+    *,
+    pending_tools: list[str] | None = None,
+) -> dict[str, int | str]:
+    expected_turns = 0
+    parse_failed = 0
+    trailers = _ToolTrailerState(pending_tools)
+    for line in lines:
+        try:
+            obj = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            if not line.endswith("\n"):
+                break
+            parse_failed += 1
+            expected_turns += 1
+            continue
+        if not isinstance(obj, dict):
+            if not line.endswith("\n"):
+                break
+            continue
+        if trailers.feed(obj, _parse_transcript_obj(obj)) is not None:
+            expected_turns += 1
+    return {
+        "status": "ok" if expected_turns == captured_turns else "partial",
+        "expected_turns": expected_turns,
+        "captured_turns": captured_turns,
+        "parse_failed": parse_failed,
+        "missing_turns": max(0, expected_turns - captured_turns),
+    }
+
+
 def _iter_spool_session_events(paths: list[Path]) -> list[dict]:
     """Decode every event line (line 0 of each file is its header) across the
     given spool files. A line that fails to decrypt or parse is skipped --
