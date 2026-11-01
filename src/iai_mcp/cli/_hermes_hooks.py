@@ -22,6 +22,7 @@ from pathlib import Path
 _MARKER = "iai-mcp-hermes"
 
 _HOOK_SCRIPTS = (
+    "_recall_render.py",
     "iai-mcp-session-recall.sh",
     "iai-mcp-per-turn-recall.sh",
     "iai-mcp-hermes-recall.sh",

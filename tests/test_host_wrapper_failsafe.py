@@ -6,9 +6,11 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import stat
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -257,6 +259,153 @@ class TestAntigravityCaptureWrapper:
 
 
 class TestHermesRecallWrapper:
+    @pytest.mark.parametrize("first", [True, False])
+    @pytest.mark.parametrize("extra", [None, [], "invalid", 42, {}, {"unrelated": True}])
+    def test_flat_fallback_ignores_missing_or_malformed_extra(
+        self, tmp_path: Path, first: bool, extra: object,
+    ) -> None:
+        self._assert_forwarded(tmp_path, {
+            "session_id": "h-wire", "cwd": "/project",
+            "is_first_turn": first, "user_message": "legacy cue\n café",
+            "extra": extra,
+        }, first, "legacy cue\n café")
+
+    @pytest.mark.parametrize("first", [True, False])
+    def test_native_wire_forwards_prompt_to_correct_core(
+        self, tmp_path: Path, first: bool,
+    ) -> None:
+        self._assert_forwarded(tmp_path, {
+            "tool_name": None, "tool_input": None, "session_id": "h-wire",
+            "cwd": "/project", "profile": "default",
+            "extra": {
+                "is_first_turn": first, "user_message": "native cue\n café 🐚",
+                "session_id": "ignored", "cwd": "/ignored",
+            },
+        }, first, "native cue\n café 🐚")
+
+    @pytest.mark.parametrize("message", ["", None, False, 17, [], {"text": "invalid"}])
+    def test_native_presence_overrides_flat_truthy_values(
+        self, tmp_path: Path, message: object,
+    ) -> None:
+        self._assert_forwarded(tmp_path, {
+            "session_id": "h-wire", "cwd": "/project",
+            "is_first_turn": True, "user_message": "ignored legacy cue",
+            "extra": {"is_first_turn": False, "user_message": message},
+        }, False, "")
+
+    @pytest.mark.parametrize("extra", [
+        {"is_first_turn": False}, {"user_message": "legacy cue"},
+    ])
+    def test_native_keys_fall_back_independently(
+        self, tmp_path: Path, extra: dict,
+    ) -> None:
+        self._assert_forwarded(tmp_path, {
+            "session_id": "h-wire", "cwd": "/project",
+            "is_first_turn": True, "user_message": "legacy cue", "extra": extra,
+        }, extra.get("is_first_turn", True), "legacy cue")
+
+    @pytest.mark.parametrize("message", [None, False, 17, [], {"text": "invalid"}])
+    def test_non_string_flat_prompt_is_empty(self, tmp_path: Path, message: object) -> None:
+        self._assert_forwarded(tmp_path, {
+            "session_id": "h-wire", "cwd": "/project",
+            "is_first_turn": True, "user_message": message,
+        }, True, "")
+
+    def _assert_forwarded(
+        self, tmp_path: Path, payload: dict, first: bool, prompt: str,
+    ) -> None:
+        staged = _stage(tmp_path, None, "unused")
+        for branch in ("session", "per-turn"):
+            (staged / f"iai-mcp-{branch}-recall.sh").write_text(
+                "#!/usr/bin/env bash\n"
+                f"printf '{branch}\\n'\ncat\n"
+            )
+        proc = _run(staged, "iai-mcp-hermes-recall.sh", payload, tmp_path)
+        assert proc.returncode == 0
+        context = json.loads(proc.stdout)["context"]
+        branch, raw = context.split("\n", 1)
+        assert branch == ("session" if first else "per-turn")
+        forwarded = json.loads(raw)
+        assert forwarded == {
+            "session_id": "h-wire", "source": "startup", "cwd": "/project",
+            "transcript_path": "", "prompt": prompt,
+        }
+        assert forwarded["prompt"].encode("utf-8") == prompt.encode("utf-8")
+
+    @pytest.mark.parametrize("raw", ["not json", "[]", "null"])
+    def test_invalid_payload_fails_open(self, tmp_path: Path, raw: str) -> None:
+        proc = subprocess.run(
+            ["bash", str(HOOKS_DIR / "iai-mcp-hermes-recall.sh")], input=raw,
+            env={**os.environ, "HOME": str(tmp_path)},
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+        assert proc.returncode == 0
+        assert proc.stdout == ""
+
+    def test_native_first_turn_uses_packaged_startup_cache(self, tmp_path: Path) -> None:
+        store = tmp_path / ".iai-mcp"
+        store.mkdir()
+        (store / ".session-start-payload.cached.md").write_text("Startup identity: café\n")
+        proc = _run(HOOKS_DIR, "iai-mcp-hermes-recall.sh", {
+            "tool_name": None, "tool_input": None, "session_id": "h-wire",
+            "cwd": str(tmp_path), "profile": "default",
+            "extra": {"is_first_turn": True, "user_message": "hello"},
+        }, tmp_path)
+        assert proc.returncode == 0
+        assert json.loads(proc.stdout) == {"context": "Startup identity: café"}
+
+    def test_native_later_turn_uses_packaged_socket_renderer(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        requests = []
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+            server.bind("recall.sock")
+            server.listen(1)
+            server.settimeout(5)
+
+            def serve() -> None:
+                try:
+                    conn, _ = server.accept()
+                except TimeoutError:
+                    return
+                with conn:
+                    conn.settimeout(5)
+                    data = b""
+                    while not data.endswith(b"\n"):
+                        chunk = conn.recv(8192)
+                        if not chunk:
+                            break
+                        data += chunk
+                    requests.append(json.loads(data))
+                    conn.sendall(json.dumps({"result": {"hits": [{
+                        "literal_surface": "Alex prefers tea", "record_id": "r1",
+                    }]}}).encode() + b"\n")
+
+            thread = threading.Thread(target=serve)
+            thread.start()
+            try:
+                proc = subprocess.run(
+                    ["bash", str(HOOKS_DIR / "iai-mcp-hermes-recall.sh")],
+                    input=json.dumps({
+                        "tool_name": None, "tool_input": None, "session_id": "h-wire",
+                        "cwd": str(tmp_path), "profile": "default",
+                        "extra": {"is_first_turn": False, "user_message": "tea café"},
+                    }),
+                    env={**os.environ, "HOME": str(tmp_path),
+                         "IAI_MCP_STORE": str(tmp_path / ".iai-mcp"),
+                         "IAI_DAEMON_SOCKET_PATH": "recall.sock",
+                         "IAI_MCP_PER_TURN_SOCKET_ACCEL": "1"},
+                    capture_output=True, text=True, timeout=30, check=False,
+                )
+            finally:
+                thread.join(timeout=6)
+        assert proc.returncode == 0
+        assert requests[0]["params"]["cue"].encode() == "tea café".encode()
+        context = json.loads(proc.stdout)["context"]
+        assert "<iai-mcp-recall>" in context
+        assert "Alex prefers tea" in context
+
     def test_first_turn_wraps_in_context_envelope(self, tmp_path: Path) -> None:
         staged = _stage(
             tmp_path, "#!/usr/bin/env bash\nprintf 'identity block'\n",

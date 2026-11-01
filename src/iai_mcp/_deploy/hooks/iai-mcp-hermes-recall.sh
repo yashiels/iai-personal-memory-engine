@@ -19,14 +19,19 @@ if not isinstance(payload, dict):
     sys.exit(0)
 
 session_id = str(payload.get("session_id") or "-")
-first = bool(payload.get("is_first_turn"))
+extra = payload.get("extra")
+if not isinstance(extra, dict):
+    extra = {}
+first = bool(extra.get("is_first_turn", payload.get("is_first_turn")))
+user_message = extra.get("user_message", payload.get("user_message"))
+prompt = user_message if isinstance(user_message, str) else ""
 core = f"{here}/iai-mcp-session-recall.sh" if first else f"{here}/iai-mcp-per-turn-recall.sh"
 core_stdin = json.dumps({
     "session_id": session_id,
     "source": "startup",
     "cwd": str(payload.get("cwd") or ""),
     "transcript_path": "",
-    "prompt": str(payload.get("user_message") or ""),
+    "prompt": prompt,
 })
 try:
     proc = subprocess.run(
