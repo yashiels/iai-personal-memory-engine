@@ -83,3 +83,59 @@ def test_wrong_token_rejected_without_reaching_handler(monkeypatch, short_socket
     rejected = asyncio.run(scenario())
     assert rejected == b""
     assert served == [], "handler must never run on a wrong-token connection"
+
+
+@pytest.mark.parametrize("windows", [False, True])
+def test_ipc_reply_line_limit(monkeypatch, windows):
+    import json
+    import tempfile
+    from pathlib import Path
+
+    if not windows and _ipc.IS_WINDOWS:
+        pytest.skip("Unix sockets unavailable on Windows")
+    monkeypatch.setattr(_ipc, "IS_WINDOWS", windows)
+    cap = 64 * 1024 * 1024
+    reply = {"jsonrpc": "2.0", "id": 1, "result": {"hits": [
+        {"literal_surface": "recall evidence " * 4800},
+    ]}}
+    large = json.dumps(reply).encode() + b"\n"
+    assert 65536 < len(large) < cap
+    responses = [b'{"result": "ok"}\n', large, b"x" * (cap + 1) + b"\n"]
+
+    async def scenario(sock_path):
+        async def handler(reader, writer):
+            index = int(await reader.readline())
+            writer.write(responses[index])
+            try:
+                await writer.drain()
+            except (ConnectionError, OSError):
+                pass
+            finally:
+                writer.close()
+                await writer.wait_closed()
+
+        server, addr, _ = await _ipc.start_ipc_server(handler, sock_path)
+        try:
+            for index, expected in enumerate(responses):
+                reader, writer = await _ipc.open_ipc_connection(sock_path, timeout=5)
+                try:
+                    writer.write(f"{index}\n".encode())
+                    await writer.drain()
+                    if index == 2:
+                        with pytest.raises(ValueError, match="limit"):
+                            await asyncio.wait_for(reader.readline(), timeout=5)
+                    else:
+                        actual = await asyncio.wait_for(reader.readline(), timeout=5)
+                        assert json.loads(actual) == json.loads(expected)
+                finally:
+                    writer.close()
+                    await writer.wait_closed()
+        finally:
+            server.close()
+            await server.wait_closed()
+            _ipc.shutdown_ipc(addr)
+
+    with tempfile.TemporaryDirectory(prefix="rpc-") as directory:
+        sock_path = str(Path(directory) / "s")
+        monkeypatch.setenv("IAI_DAEMON_SOCKET_PATH", sock_path)
+        asyncio.run(scenario(sock_path))
