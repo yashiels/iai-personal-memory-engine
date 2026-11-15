@@ -43,11 +43,6 @@ def test_hook_lockstep_detects_stale_install(fake_home, capsys):
         "the packaged per-turn hook template must carry the session-agnostic "
         "running-agent registry emitter"
     )
-    assert "emit_live_state_fallback" in pt_text, (
-        "the packaged per-turn hook template must carry the phase/step "
-        "fallback emitter that fires when the session-scoped snapshot is "
-        "absent"
-    )
 
     # A freshly installed hook matches the packaged template byte-for-byte.
     cli_mod.cmd_capture_hooks_status(argparse.Namespace())

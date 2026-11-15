@@ -147,8 +147,8 @@ def test_live_state_fold_free_equals_default_output(tmp_path, monkeypatch):
     wt.update_task(focus="pipeline.py K_CANDIDATES", next_action="reproduce locally", session_id="s1")
     sensory_append("s1", "user", "an extra sensory turn the render must never surface")
 
-    default_rendered = render_live_state_segment()
-    fold_free_rendered = render_live_state_segment(fold_sensory=False)
+    default_rendered = render_live_state_segment(session_id="s1")
+    fold_free_rendered = render_live_state_segment(session_id="s1", fold_sensory=False)
 
     assert default_rendered == fold_free_rendered
     assert "investigate the recall latency regression" in default_rendered
@@ -179,7 +179,7 @@ def test_write_continuity_cache_two_block_byte_contract_atomic_0600(tmp_path, mo
         agent_model="claude-sonnet-5",
     )
 
-    write_continuity_cache(store)
+    write_continuity_cache(store, session_id="s1")
 
     path = store_root / ".session-continuity.cached.md"
     assert path.exists()

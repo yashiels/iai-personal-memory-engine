@@ -78,7 +78,7 @@ def test_compaction_delivers_agent_registry_alongside_focal_phase_step(tmp_path,
     monkeypatch.setenv("IAI_MCP_STORE", str(store_root))
 
     wt.open_task(FOCAL_GOAL, session_id="s1")
-    wt.update_task(next_action=NEXT_ACTION, session_id="s1")
+    wt.update_task(next_action=NEXT_ACTION, session_id="s1", store=SimpleNamespace(root=store_root))
     register_running_agent(
         agent_id="a-compact-1",
         role=AGENT_ROLE,

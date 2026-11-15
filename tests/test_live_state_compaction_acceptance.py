@@ -45,6 +45,7 @@ def _real_cache_snapshot() -> tuple[bool, float | None]:
 def _run_session_recall_hook(tmp_home: Path, *, session_id: str, source: str) -> str:
     env = dict(os.environ)
     env["HOME"] = str(tmp_home)
+    env["IAI_MCP_STORE"] = str(tmp_home / ".iai-mcp")
     payload = json.dumps({"session_id": session_id, "source": source})
     proc = subprocess.run(
         ["/bin/sh", str(_HOOK)],
@@ -61,10 +62,12 @@ def _run_session_recall_hook(tmp_home: Path, *, session_id: str, source: str) ->
 def test_compaction_delivers_live_state_from_real_cache_under_redirected_home(tmp_path):
     before_exists, before_mtime = _real_cache_snapshot()
 
+    tmp_home = tmp_path / "home"
+    cache_dir = tmp_home / ".iai-mcp"
+    cache_dir.mkdir(parents=True)
+    store = MemoryStore(path=cache_dir)
     wt.open_task(FOCAL_GOAL, session_id="s1")
-    wt.update_task(next_action=NEXT_ACTION, session_id="s1")
-
-    store = MemoryStore(path=tmp_path / "lancedb")
+    wt.update_task(next_action=NEXT_ACTION, session_id="s1", store=store)
     payload = _compose_session_start_payload(
         store, CommunityAssignment(), [],
         session_id="s1", profile_state={"wake_depth": "standard"},
@@ -73,9 +76,6 @@ def test_compaction_delivers_live_state_from_real_cache_under_redirected_home(tm
     assert "## Session continuity (always active)" in rendered
     assert NEXT_ACTION in rendered
 
-    tmp_home = tmp_path / "home"
-    cache_dir = tmp_home / ".iai-mcp"
-    cache_dir.mkdir(parents=True)
     cache_path = cache_dir / ".session-start-payload.cached.md"
     cache_path.write_text(rendered, encoding="utf-8")
 

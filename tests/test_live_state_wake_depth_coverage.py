@@ -22,8 +22,8 @@ def _reset_working_tier_singleton():
 
 @pytest.mark.parametrize("wake_depth", ["minimal", "standard", "deep"])
 def test_live_state_delivers_under_every_wake_depth(wake_depth, tmp_path):
-    wt.open_task("wake-depth coverage goal")
-    wt.update_task(next_action="deliver under every wake depth")
+    wt.open_task("wake-depth coverage goal", session_id="s1")
+    wt.update_task(next_action="deliver under every wake depth", session_id="s1")
 
     store = MemoryStore(path=tmp_path)
     payload = _compose_session_start_payload(
@@ -39,8 +39,8 @@ def test_live_state_delivers_under_every_wake_depth(wake_depth, tmp_path):
 
 
 def test_minimal_wake_depth_does_not_drop_live_state_even_though_l0_l1_are_suppressed(tmp_path):
-    wt.open_task("minimal-mode goal")
-    wt.update_task(next_action="stay present on the minimal path")
+    wt.open_task("minimal-mode goal", session_id="s1")
+    wt.update_task(next_action="stay present on the minimal path", session_id="s1")
 
     store = MemoryStore(path=tmp_path)
     payload = _compose_session_start_payload(

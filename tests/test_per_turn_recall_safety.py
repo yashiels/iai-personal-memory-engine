@@ -288,7 +288,7 @@ def test_absent_override_falls_back_to_current_default(_hook_runtime: _HookRunti
 def test_pre_existing_emitters_and_gate_are_still_defined_in_order() -> None:
     source = _HOOK.read_text(encoding="utf-8")
     required_emitters = [
-        "emit_live_state", "emit_live_state_fallback",
+        "emit_live_state",
         "emit_agent_registry", "emit_directives",
     ]
     for name in required_emitters:
@@ -297,7 +297,7 @@ def test_pre_existing_emitters_and_gate_are_still_defined_in_order() -> None:
 
     call_order = [
         "emit_foresight", "emit_working_tier", "emit_live_state",
-        "emit_live_state_fallback", "emit_agent_registry", "emit_directives",
+        "emit_agent_registry", "emit_directives",
         "emit_socket_recall",
     ]
     positions = [source.index(f"\n{name}\n") for name in call_order]

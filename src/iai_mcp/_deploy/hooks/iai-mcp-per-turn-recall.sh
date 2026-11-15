@@ -61,25 +61,6 @@ session_scope_blocks() {
     return 0
 }
 
-_sid_safe_bash() {
-    printf '%s' "$1" | tr -cd 'A-Za-z0-9_-' | cut -c1-64
-}
-
-clear_continuation_marker_fresh() {
-    # Proves the incoming sid was born via /clear, not WHICH window it
-    # continues -- rare concurrent-window cross-focus is an accepted gap.
-    local sid_safe marker age
-    sid_safe=$(_sid_safe_bash "$SESS_IN")
-    [ -n "$sid_safe" ] || return 1
-    marker="$IAI_ROOT/.session-clear-continuation.$sid_safe"
-    [ -f "$marker" ] || return 1
-    age=$(file_age "$marker")
-    case "$age" in
-        ''|*[!0-9-]*) return 1 ;;
-    esac
-    [ "$age" -ge 0 ] && [ "$age" -le "$RUNNING_AGENT_TTL_SEC" ]
-}
-
 # At most two python3 spawns per run (this preamble + emit_socket_recall) --
 # never add a third.
 #
@@ -270,16 +251,21 @@ def _write_ledger(root, byte_count, channel, deadline):
 
 
 safe_dir = os.environ.get("SAFE_DIR", "")
-sid = _sanitize_sid(session_id) if session_id else ""
+sid = _sanitize_sid(session_id) if session_id and session_id not in {"-", "precache"} else ""
 
 wt_override = os.environ.get("IAI_MCP_WORKING_TIER_CACHE", "")
-if wt_override:
-    wt_path = wt_override
-elif sid:
-    wt_path = os.path.join(IAI_ROOT, ".working-tier." + sid + ".cached.md")
-else:
+if not sid:
     wt_path = ""
+elif wt_override:
+    wt_path = wt_override
+else:
+    wt_path = os.path.join(IAI_ROOT, ".working-tier." + sid + ".cached.md")
 wt_data, wt_mtime = _read_regular(wt_path, 65536)
+if wt_data:
+    lines = wt_data.splitlines()
+    owner = lines[1][len(b"session: "):] if len(lines) > 1 and lines[1].startswith(b"session: ") else None
+    if (wt_override or owner is not None) and owner != session_id.encode("utf-8"):
+        wt_data, wt_mtime = b"", 0
 _write_shadow(safe_dir, "wt.md", wt_data, wt_mtime)
 
 fs_override = os.environ.get("IAI_MCP_FORESIGHT_PACK", "")
@@ -424,43 +410,6 @@ emit_agent_registry() {
     echo "</iai-mcp-agent-registry>"
 }
 
-emit_live_state_fallback() {
-    # A fresh /clear-continuation marker for the incoming sid overrides the
-    # double-fire gate too -- turn 2's thin scoped snapshot already set
-    # _WORKING_TIER_EMITTED, but its next_action is still "(none)", so the
-    # thin-snapshot check just below must stay reachable.
-    if [ -n "$_WORKING_TIER_EMITTED" ]; then
-        clear_continuation_marker_fresh || return 0
-    fi
-    # Fires only when this session's own scoped snapshot has no real
-    # next_action yet (mirrors emit_live_state's "(none)" check) -- not
-    # merely absent, since a fresh /clear entry exists with next_action
-    # still "(none)". At most one <iai-mcp-live-state> block fires across
-    # emit_live_state and this fallback.
-    if [ -f "$WT_SHADOW" ]; then
-        scoped_next=$(sed -n 's/^next action:[[:space:]]*//p' "$WT_SHADOW" | head -1)
-        [ -n "$scoped_next" ] && [ "$scoped_next" != "(none)" ] && return 0
-    fi
-
-    [ -f "$CONTINUITY_CACHE" ] || return 0
-    [ "$(file_age "$CONTINUITY_CACHE")" -le "$RUNNING_AGENT_TTL_SEC" ] || return 0
-    # Session scope: the shared eager file's live-state block was last
-    # written by whichever session folded most recently -- a different
-    # session reading it here must never surface that other session's goal.
-    # Unknown on either side -> fail open (old daemon, absent sidecar, fresh
-    # session with no prior writer). A fresh /clear-continuation marker for
-    # the incoming sid overrides a proven block -- the one external signal a
-    # concurrent second window can never produce for its own new session id.
-    if session_scope_blocks "$CONTINUITY_STATE" "$SESS_IN"; then
-        clear_continuation_marker_fresh || return 0
-    fi
-    block=$(sed -n '/<iai-mcp-live-state>/,/<\/iai-mcp-live-state>/p' "$CONTINUITY_CACHE" | sed '1d;$d')
-    [ -n "$block" ] || return 0
-    echo "<iai-mcp-live-state>"
-    printf '%s\n' "$block" | head -c 4096
-    echo "</iai-mcp-live-state>"
-}
-
 emit_directives() {
     # Global, no session gate, no freshness gate: unlike the emitters above,
     # this must inject regardless of session id or cache age.
@@ -588,7 +537,6 @@ PYEOF
 emit_foresight
 emit_working_tier
 emit_live_state
-emit_live_state_fallback
 emit_agent_registry
 emit_directives
 emit_socket_recall
