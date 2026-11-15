@@ -299,21 +299,14 @@ def render_directive_segment(store: MemoryStore) -> str:
     return rendered
 
 
-def render_live_state_segment(*, fold_sensory: bool = True) -> str:
-    """Narrow session-continuity render from the process-global focal task:
-    goal + focus + next_action only, never subgoals/hypotheses/results/raw
-    sensory. Reads the GLOBAL focal task (no session_id) -- the composer's
-    session_id is a placeholder on the daemon's cached fast path and must
-    never scope this read. No store/embedding/cue/rank/similarity gate.
-
-    fold_sensory is threaded straight to working_tier.read_task -- this
-    render itself reads only goal/focus/next_action either way, so
-    fold_sensory=False changes no output, only whether the read holds
-    read_task's lock across the (unused here) sensory-tail disk fold.
-    """
+def render_live_state_segment(
+    *, session_id: str | None = None, fold_sensory: bool = True,
+) -> str:
     from iai_mcp import working_tier
 
-    entry = working_tier.read_task(fold_sensory=fold_sensory)
+    if not session_id or session_id in {"-", "precache"}:
+        return ""
+    entry = working_tier.read_task(session_id=session_id, fold_sensory=fold_sensory)
     if entry is None:
         return ""
     lines: list[str] = []
@@ -494,7 +487,9 @@ def write_continuity_cache(
     of a body change it didn't cause.
     """
     path = _continuity_cache_path(store)
-    live_state = render_live_state_segment(fold_sensory=False)
+    live_state = render_live_state_segment(
+        session_id=session_id, fold_sensory=False,
+    )
     agent_registry = render_agent_registry_segment()
 
     existing_text = ""
@@ -506,6 +501,7 @@ def write_continuity_cache(
 
     if (
         not allow_downgrade
+        and session_id not in {"-", "precache"}
         and not _live_state_block_is_substantive(live_state)
         and existing_text
     ):
@@ -1009,7 +1005,7 @@ def _compose_session_start_payload(
         wake_depth = "minimal"
 
     directives_segment = render_directive_segment(store)
-    live_state_segment = render_live_state_segment()
+    live_state_segment = render_live_state_segment(session_id=session_id)
 
     from iai_mcp import store_watermark
     source_watermark = store_watermark.read(

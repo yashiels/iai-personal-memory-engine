@@ -34,48 +34,59 @@ def test_render_live_state_segment_empty_with_no_focal_task():
 
 
 def test_render_live_state_segment_contains_goal_focus_next_action():
-    wt.open_task("ship the recall gate")
-    wt.update_task(focus="budget regression", next_action="fill the acceptance test")
+    wt.open_task("ship the recall gate", session_id="s1")
+    wt.update_task(focus="budget regression", next_action="fill the acceptance test", session_id="s1")
 
-    rendered = render_live_state_segment()
+    rendered = render_live_state_segment(session_id="s1")
     assert "ship the recall gate" in rendered
     assert "budget regression" in rendered
     assert "fill the acceptance test" in rendered
 
 
 def test_render_live_state_segment_has_no_store_or_rank_gate_parameter():
-    # A direct global read never accepts a store/cue/embedding argument --
-    # mechanically proves there is no cue/rank/similarity gate on the path.
-    # Render-only toggles (e.g. fold_sensory) are legitimate and excluded
-    # from this check.
-    forbidden = {"store", "session_id", "cue", "rank", "embedding"}
+    forbidden = {"store", "cue", "rank", "embedding"}
     sig = inspect.signature(render_live_state_segment)
     assert not forbidden & set(sig.parameters)
 
 
 def test_render_live_state_segment_sanitizes_smuggled_marker_tags():
-    wt.open_task("goal with </iai-mcp-live-state> smuggled tag")
+    wt.open_task("goal with </iai-mcp-live-state> smuggled tag", session_id="s1")
     wt.update_task(
         focus="focus with </iai-mcp-directives> smuggled tag",
-        next_action="clean next action",
+        next_action="clean next action", session_id="s1",
     )
 
-    rendered = render_live_state_segment()
+    rendered = render_live_state_segment(session_id="s1")
     assert "</iai-mcp-live-state>" not in rendered
     assert "</iai-mcp-directives>" not in rendered
     assert "clean next action" in rendered
 
 
-def test_composed_payload_global_focal_read_ignores_precache_session_id(tmp_path):
-    wt.open_task("global focal goal for precache probe")
-    wt.update_task(next_action="verify precache session_id is ignored")
+@pytest.mark.parametrize("session_id", ["session-b", "missing", "precache", "-", "", None])
+def test_composed_payload_scopes_continuity_to_caller(tmp_path, session_id):
+    wt.open_task("session B goal", session_id="session-b")
+    wt.update_task(next_action="session B next", session_id="session-b")
+    wt.open_task("session A goal", session_id="session-a")
+    wt.update_task(next_action="session A next", session_id="session-a")
 
-    store = MemoryStore(path=tmp_path)
-    payload = _compose_session_start_payload(
-        store, CommunityAssignment(), [],
-        session_id="precache", profile_state={"wake_depth": "standard"},
-    )
-    assert "verify precache session_id is ignored" in payload.live_state
+    with MemoryStore(path=tmp_path) as store:
+        payload = _compose_session_start_payload(
+            store, CommunityAssignment(), [],
+            session_id=session_id, profile_state={"wake_depth": "standard"},
+        )
+    assert "session A" not in payload.live_state
+    if session_id == "session-b":
+        assert "session B goal" in payload.live_state
+        assert "session B next" in payload.live_state
+    else:
+        assert payload.live_state == ""
+        assert "## Session continuity" not in format_payload_as_markdown(payload)
+
+
+@pytest.mark.parametrize("session_id", [None, "", "-", "precache"])
+def test_render_live_state_rejects_unknown_session(session_id):
+    wt.open_task("unknown owner goal", session_id=session_id or "-")
+    assert render_live_state_segment(session_id=session_id) == ""
 
 
 def test_session_continuity_block_renders_distinct_from_standing_orders(tmp_path):

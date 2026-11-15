@@ -54,6 +54,47 @@ fi
 # never shelled out to python -- keep this value in sync by hand.
 RUNNING_AGENT_TTL_SEC="${IAI_MCP_RUNNING_AGENT_TTL_SEC:-21600}"
 
+scope_cached_payload() {
+  python3 -c '
+import os, re, stat, sys
+
+root, session_id = sys.argv[1:]
+text = sys.stdin.read()
+text = re.sub(r"(?m)^## Session continuity \(always active\)\n.*?(?=\n\n|^## |\Z)(?:\n\n)?", "", text, flags=re.S)
+block = ""
+sid = "".join(c for c in session_id if c.isalnum() or c in "-_")[:64]
+if session_id and session_id not in {"-", "precache"} and sid:
+    fd = None
+    try:
+        path = os.path.join(root, ".working-tier." + sid + ".cached.md")
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        if stat.S_ISREG(os.fstat(fd).st_mode):
+            snapshot = os.read(fd, 65536).decode("utf-8")
+            lines = snapshot.splitlines()
+            if len(lines) > 1 and lines[1] == "session: " + session_id:
+                fields = {}
+                for line in lines[2:]:
+                    if line == "recent turns:":
+                        break
+                    key, sep, value = line.partition(": ")
+                    if sep and key in {"goal", "focus", "next action"} and key not in fields:
+                        value = re.sub(r"\x1b\[[0-9;?]*[ -/]*[@-~]", "", value).strip()
+                        if value and value != "(none)" and "<" not in value and ">" not in value:
+                            fields[key] = value
+                block = "\n".join(key + ": " + fields[key] for key in ("goal", "focus", "next action") if key in fields)
+    except (OSError, UnicodeError):
+        pass
+    finally:
+        if fd is not None:
+            os.close(fd)
+if block:
+    heading = re.search(r"(?m)^## (?!Standing orders \(always active\))", text)
+    index = heading.start() if heading else len(text)
+    text = text[:index] + "## Session continuity (always active)\n" + block + "\n\n" + text[index:]
+sys.stdout.write(text)
+' "$marker_root" "$session_id" 2>/dev/null
+}
+
 emit_continuity_agent_block() {
   # Eager, session-agnostic agent-registry append -- fixed-name file, no
   # session id in the path, so a brand-new post-/clear session id still
@@ -116,7 +157,7 @@ if [ -s "$cache_path" ]; then
   else
     now_epoch=$(date +%s)
     age=$(( now_epoch - cache_mtime ))
-    cache_out=$(head -c "$cache_head_cap" "$cache_path" 2>/dev/null || true)
+    cache_out=$(head -c "$cache_head_cap" "$cache_path" 2>/dev/null | scope_cached_payload | head -c "$cache_head_cap" || true)
     if [ -n "$cache_out" ]; then
       # Anchored to line 1 ONLY: a crafted cache cannot inject a fake
       # sentinel anywhere but the leading line to spoof staleness.

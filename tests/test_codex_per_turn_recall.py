@@ -201,12 +201,9 @@ def test_installed_hook_emits_working_tier_and_foresight_together(
     )
 
 
-def test_installed_hook_emits_live_state_fallback_and_agent_registry(
+def test_installed_hook_omits_unscoped_live_state_and_emits_agent_registry(
     installed_codex: _InstalledCodex,
 ) -> None:
-    # No working-tier snapshot for this session -> emit_live_state and
-    # emit_working_tier stay silent; the eager continuity cache carries both
-    # the live-state and agent-registry blocks instead.
     (installed_codex.store / ".session-continuity.cached.md").write_text(
         "<iai-mcp-live-state>\n"
         "goal: recover the pending agent\n"
@@ -222,8 +219,8 @@ def test_installed_hook_emits_live_state_fallback_and_agent_registry(
     )
     out = result.stdout
     assert b"<iai-mcp-working-tier>" not in out
-    assert out.count(b"<iai-mcp-live-state>") == 1
-    assert b"resume the running task" in out
+    assert out.count(b"<iai-mcp-live-state>") == 0
+    assert b"resume the running task" not in out
     assert out.count(b"<iai-mcp-agent-registry>") == 1
     assert b"executor: running deploy checklist" in out
 

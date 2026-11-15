@@ -7,6 +7,7 @@ depend on the file; its absence merely yields no injected context.
 """
 from __future__ import annotations
 
+import json
 import os
 import stat
 import subprocess
@@ -112,14 +113,14 @@ def test_close_task_with_no_store_never_touches_continuity_cache(monkeypatch):
     assert calls == [], "close_task(store=None) must never call write_continuity_cache"
 
 
-def _run_hook(cache_path: Path, extra_env: dict | None = None) -> str:
+def _run_hook(cache_path: Path, extra_env: dict | None = None, *, session_id="s-cache") -> str:
     env = dict(os.environ)
     env["IAI_MCP_WORKING_TIER_CACHE"] = str(cache_path)
     env.pop("IAI_MCP_PER_TURN_SOCKET_ACCEL", None)
     env.update(extra_env or {})
     proc = subprocess.run(
         [str(_HOOK)],
-        input='{"prompt": "what am I working on"}',
+        input=json.dumps({"prompt": "what am I working on", "session_id": session_id}),
         capture_output=True,
         text=True,
         env=env,
@@ -131,7 +132,7 @@ def _run_hook(cache_path: Path, extra_env: dict | None = None) -> str:
 
 def test_hook_surfaces_fresh_snapshot_without_daemon(tmp_path):
     cache = tmp_path / "wt.md"
-    cache.write_text("goal: finish the teach flow\n", encoding="utf-8")
+    cache.write_text("# Working tier\nsession: s-cache\ngoal: finish the teach flow\n", encoding="utf-8")
     out = _run_hook(cache)
     assert "<iai-mcp-working-tier>" in out
     assert "finish the teach flow" in out
@@ -161,3 +162,10 @@ def test_hook_is_fast_and_import_free(tmp_path):
     text = _HOOK.read_text(encoding="utf-8")
     assert "import iai_mcp" not in text, "hook must never import iai_mcp"
     assert "working_tier import" not in text
+
+
+@pytest.mark.parametrize("session_id", [None, "-", "precache", "another-session"])
+def test_override_snapshot_requires_its_real_owner(tmp_path, session_id):
+    cache = tmp_path / "wt.md"
+    cache.write_text("# Working tier\nsession: s-cache\ngoal: private owner goal\n")
+    assert "private owner goal" not in _run_hook(cache, session_id=session_id)

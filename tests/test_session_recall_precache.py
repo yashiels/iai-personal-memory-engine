@@ -861,3 +861,52 @@ def test_marker_vocabulary_matches_session_reserve_source():
     assert m.group(1) == SESSION_START_MARKER_STALE, (
         "session.py's STALE marker literal drifted from the recall hook's"
     )
+
+
+@pytest.mark.parametrize("adapter", ["claude", "hermes"])
+@pytest.mark.parametrize("session_id", ["session-b", "missing", "", "-", "precache"])
+def test_cached_hook_continuity_is_scoped_to_real_session(tmp_path, session_id, adapter):
+    import json
+
+    from iai_mcp import working_tier as wt
+
+    root = tmp_path / ".iai-mcp"
+    root.mkdir()
+    (root / ".session-start-payload.cached.md").write_text(
+        "<!-- iai-mcp:source_watermark= -->\n"
+        "<!-- iai-mcp:wake_depth=minimal -->\n"
+        "## Standing orders (always active)\nkeep the standing order\n\n"
+        "## Session continuity (always active)\ngoal: session A private goal\n\n"
+        "## Identity\nkeep the identity\n",
+    )
+    for sid in ("session-a", "session-b"):
+        entry = wt.WorkingSetEntry(
+            session_id=sid, goal=sid + " own goal", focus=sid + " own focus",
+            next_action=sid + " own next action",
+        )
+        (root / f".working-tier.{sid}.cached.md").write_text(wt._render_snapshot(entry))
+    payload = {"session_id": session_id, "is_first_turn": True}
+    if adapter == "hermes":
+        env = dict(os.environ, HOME=str(tmp_path), IAI_MCP_STORE=str(root))
+        result = subprocess.run(
+            ["bash", str(HOOK_PATH.with_name("iai-mcp-hermes-recall.sh"))],
+            input=json.dumps(payload), env=env, capture_output=True, text=True,
+            timeout=10, check=False,
+        )
+        result.stdout = json.loads(result.stdout)["context"]
+    else:
+        result = _run_hook(
+            tmp_path, stdin_payload=json.dumps(payload),
+            extra_env={"IAI_MCP_STORE": str(root)},
+        )
+    assert result.returncode == 0
+    assert "session A private goal" not in result.stdout
+    assert "session-a own" not in result.stdout
+    assert "keep the standing order" in result.stdout
+    assert "keep the identity" in result.stdout
+    if session_id == "session-b":
+        assert "session-b own goal" in result.stdout
+        assert "session-b own focus" in result.stdout
+        assert "session-b own next action" in result.stdout
+    else:
+        assert "## Session continuity" not in result.stdout

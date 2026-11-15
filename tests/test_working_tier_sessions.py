@@ -256,7 +256,7 @@ def test_hook_never_surfaces_another_sessions_goal_via_shared_continuity(tmp_pat
     )
 
 
-def test_hook_fails_open_and_renders_when_sidecar_absent(tmp_path):
+def test_hook_omits_shared_continuity_when_sidecar_absent(tmp_path):
     (tmp_path / ".session-continuity.cached.md").write_text(
         "<iai-mcp-live-state>\ngoal: shared goal with no sidecar on disk\n"
         "</iai-mcp-live-state>\n<iai-mcp-agent-registry>\n</iai-mcp-agent-registry>\n",
@@ -264,20 +264,12 @@ def test_hook_fails_open_and_renders_when_sidecar_absent(tmp_path):
     )
 
     out = _run_hook(tmp_path, '{"prompt": "hi", "session_id": "sess-a"}')
-    assert "shared goal with no sidecar on disk" in out, (
-        "absent sidecar is unknown, not mismatched -- must fail open and still render"
+    assert "shared goal with no sidecar on disk" not in out, (
+        "an unknown owner must never supply session continuity"
     )
 
 
-def test_hook_never_double_fires_working_tier_and_live_state_fallback(tmp_path):
-    # emit_working_tier fires unconditionally on a fresh per-session
-    # snapshot (its own next_action content does not matter to it) and sets
-    # _WORKING_TIER_EMITTED. With next_action still "(none)" on the SAME
-    # per-session file, emit_live_state_fallback's own "(none)" short-circuit
-    # does not trip -- only the shared _WORKING_TIER_EMITTED gate can stop
-    # it from also serving the shared continuity cache's substantive
-    # same-session block underneath. Same-session sidecar so the
-    # session-scope guard fails open and never masks this gate.
+def test_hook_uses_own_snapshot_and_ignores_shared_continuity(tmp_path):
     (tmp_path / ".working-tier.sess-a.cached.md").write_text(
         "# Working tier — active task\n"
         "session: sess-a\n"
@@ -297,10 +289,7 @@ def test_hook_never_double_fires_working_tier_and_live_state_fallback(tmp_path):
 
     out = _run_hook(tmp_path, '{"prompt": "hi", "session_id": "sess-a"}')
     assert "<iai-mcp-working-tier>" in out, "the working-tier block must still fire"
-    assert "<iai-mcp-live-state>" not in out, (
-        "emit_live_state_fallback must never also fire once emit_working_tier "
-        "already served this turn's live state"
-    )
+    assert "<iai-mcp-live-state>" not in out
 
 
 def test_unknown_session_write_clears_sidecar_via_real_producer_path(tmp_path):
@@ -334,10 +323,8 @@ def test_unknown_session_write_clears_sidecar_via_real_producer_path(tmp_path):
     )
 
     out = _run_hook(tmp_path, '{"prompt": "hi", "session_id": "sess-b-real"}')
-    assert "unknown-session's substantive next action" in out, (
-        "a body-changing write from the unknown-session sentinel must clear "
-        "the sidecar, not leave it pointing at the prior real owner -- a "
-        "genuinely unrelated session must still see the current live state"
+    assert "unknown-session's substantive next action" not in out, (
+        "a session must never receive an unknown owners continuity"
     )
 
 
@@ -482,3 +469,11 @@ def test_concurrent_sessions_drift_reanchors_only_the_drifting_session(
         )
     finally:
         store.close()
+
+
+def test_hook_rejects_snapshot_with_mismatched_owner(tmp_path):
+    (tmp_path / ".working-tier.sess-b.cached.md").write_text(
+        "# Working tier\nsession: sess-a\ngoal: session A private goal\n",
+    )
+    out = _run_hook(tmp_path, '{"prompt": "hi", "session_id": "sess-b"}')
+    assert "session A private goal" not in out

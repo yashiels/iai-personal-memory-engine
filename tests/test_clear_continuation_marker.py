@@ -145,3 +145,17 @@ def test_producer_path_marker_lands_at_iai_root(tmp_path):
         "three-level fallback -- proving path agreement under the "
         "IAI_MCP_ROOT-only legacy env shape"
     )
+
+
+def test_fresh_clear_marker_cannot_import_another_sessions_goal(tmp_path):
+    _write_continuity(tmp_path, "s1")
+    (tmp_path / ".session-clear-continuation.s3").write_text("")
+    out = _run_consumer_hook(tmp_path, '{"prompt": "hi", "session_id": "s3"}')
+    assert _PRIOR_GOAL not in out
+
+
+def test_unknown_continuity_owner_never_renders(tmp_path):
+    _write_continuity(tmp_path, "-")
+    (tmp_path / ".session-continuity.state.json").unlink()
+    out = _run_consumer_hook(tmp_path, '{"prompt": "hi", "session_id": "s3"}')
+    assert _PRIOR_GOAL not in out
