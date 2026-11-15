@@ -184,6 +184,21 @@ class TestHermesInstaller:
         install_hermes_hooks()
         assert status_hermes_hooks() == 0
 
+    def test_renderer_install_status_repair_and_uninstall(self, _home: Path) -> None:
+        from importlib.resources import files
+
+        renderer = _home / "agent-hooks" / "_recall_render.py"
+        template = files("iai_mcp") / "_deploy" / "hooks" / "_recall_render.py"
+        assert install_hermes_hooks() == 0
+        assert renderer.read_bytes() == template.read_bytes()
+        renderer.unlink()
+        assert status_hermes_hooks() == 1
+        assert install_hermes_hooks() == 0
+        assert renderer.read_bytes() == template.read_bytes()
+        assert status_hermes_hooks() == 0
+        assert uninstall_hermes_hooks() == 0
+        assert not renderer.exists()
+
     def test_refusal_catches_spaced_hooks_key(self, _home: Path) -> None:
         _home.mkdir(parents=True)
         # `hooks :` (space before colon) is the same YAML key — appending a
