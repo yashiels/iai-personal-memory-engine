@@ -6,6 +6,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 
 
 def _write_valid_creds(creds_path: Path, sub_type: str = "max") -> None:
@@ -127,3 +129,27 @@ def test_run_diagnosis_includes_o_and_p_rows():
     assert n_idx < o_idx < p_idx, "expected (n) < (o) < (p) ordering"
     if z_idx >= 0:
         assert p_idx < z_idx, "(z) must remain the last row"
+
+
+@pytest.mark.parametrize(
+    "source,mode,status",
+    [
+        ("env", 0o600, "PASS"),
+        ("file", 0o600, "PASS"),
+        ("file", 0o644, "WARN"),
+    ],
+)
+def test_check_o_oauth_token_redacted(source, mode, status, tmp_path, monkeypatch):
+    from iai_mcp.doctor import check_o_subscription_credentials
+
+    token = "fake-doctor-subscription-token"
+    if source == "env":
+        monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", token)
+    else:
+        token_file = tmp_path / "oauth-token.env"
+        token_file.write_text(f"CLAUDE_CODE_OAUTH_TOKEN={token}\n")
+        token_file.chmod(mode)
+        monkeypatch.setenv("IAI_MCP_CLAUDE_OAUTH_TOKEN_FILE", str(token_file))
+    result = check_o_subscription_credentials()
+    assert result.status == status
+    assert token not in repr(result)

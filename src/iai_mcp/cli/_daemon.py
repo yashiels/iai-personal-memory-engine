@@ -10,6 +10,7 @@ import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from xml.sax.saxutils import escape
 
 logger = logging.getLogger(__name__)
 
@@ -200,6 +201,17 @@ def _render_launchd_plist() -> str:
     username = os.environ.get("USER") or Path.home().name
     text = text.replace("/usr/local/bin/python3", _cli.sys.executable)
     text = text.replace("{USERNAME}", username)
+    from iai_mcp.claude_cli import OAUTH_TOKEN_FILE_ENV
+
+    token_path = os.environ.get(OAUTH_TOKEN_FILE_ENV, "").strip()
+    if token_path:
+        token_path = str(Path(token_path).expanduser().resolve())
+        text = text.replace(
+            "<key>EnvironmentVariables</key>\n    <dict>",
+            "<key>EnvironmentVariables</key>\n    <dict>\n"
+            f"        <key>{OAUTH_TOKEN_FILE_ENV}</key>\n"
+            f"        <string>{escape(token_path)}</string>",
+        )
     return text
 
 

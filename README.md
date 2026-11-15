@@ -276,6 +276,14 @@ behavioural-profile control; and store introspection.
   Claude Code's login record (`~/.claude/.credentials.json`, or the macOS
   Keychain item) when the MCP server starts and before the REM step. Nothing
   from the record is sent anywhere.
+- Subscription authentication also accepts a non-empty `CLAUDE_CODE_OAUTH_TOKEN`.
+  For launchd, set `IAI_MCP_CLAUDE_OAUTH_TOKEN_FILE` to an absolute path such as
+  `~/.claude/oauth-token.env` before running `iai-mcp daemon install`. The file
+  must belong to the current user with mode `0600` and contain only
+  `export CLAUDE_CODE_OAUTH_TOKEN=...` (or the assignment without `export`;
+  quotes are accepted). Only the path is saved in the plist; credentials are
+  read when checked or passed to Claude, without sourcing shell code. Doctor
+  uses the same setting; export it in your shell when running doctor.
 - The MCP server starts the engine in the background, and it keeps running
   after the session ends. Stop it with `iai-mcp daemon stop`.
 - The store refuses to mix incompatible embedding generations; changing the
