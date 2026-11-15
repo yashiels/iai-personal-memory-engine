@@ -124,3 +124,31 @@ def test_install_warns_when_sys_executable_lacks_psutil(
     assert "psutil" in err_lower
     assert "iai-mcp daemon install" in err_lower
     assert "re-run" in err_lower
+
+
+def test_launchd_install_persists_only_oauth_token_path(tmp_path, monkeypatch, capsys):
+    import plistlib
+
+    from iai_mcp.cli import _render_launchd_plist, cmd_daemon_install
+
+    token = "fake-launchd-subscription-token"
+    token_file = tmp_path / "oauth&token.env"
+    token_file.write_text(f"export CLAUDE_CODE_OAUTH_TOKEN={token}\n")
+    token_file.chmod(0o600)
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", token)
+    monkeypatch.setenv("IAI_MCP_CLAUDE_OAUTH_TOKEN_FILE", str(token_file))
+    monkeypatch.setattr("iai_mcp.cli._is_macos", lambda: True)
+    rendered = _render_launchd_plist()
+    environment = plistlib.loads(rendered.encode())["EnvironmentVariables"]
+    assert environment["IAI_MCP_CLAUDE_OAUTH_TOKEN_FILE"] == str(token_file)
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in environment
+    assert token not in rendered
+    assert cmd_daemon_install(_make_install_args()) == 0
+    assert token not in capsys.readouterr().out
+    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN")
+    with monkeypatch.context() as launchd:
+        for key, value in environment.items():
+            launchd.setenv(key, value)
+        from iai_mcp.claude_cli import verify_credentials_subscription
+
+        assert verify_credentials_subscription()["ok"]

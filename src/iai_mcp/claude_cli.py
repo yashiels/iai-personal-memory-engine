@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shlex
+import stat
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -67,7 +69,53 @@ def _read_keychain_credentials() -> dict | None:
         return None
 
 
+OAUTH_TOKEN_ENV = "CLAUDE_CODE_OAUTH_TOKEN"
+OAUTH_TOKEN_FILE_ENV = "IAI_MCP_CLAUDE_OAUTH_TOKEN_FILE"
+
+
+def _subscription_token() -> str:
+    token = os.environ.get(OAUTH_TOKEN_ENV, "").strip()
+    if token:
+        return token
+    token_path = os.environ.get(OAUTH_TOKEN_FILE_ENV, "").strip()
+    if not token_path:
+        return ""
+    try:
+        flags = (
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        )
+        with os.fdopen(
+            os.open(Path(token_path).expanduser(), flags), encoding="utf-8"
+        ) as stream:
+            metadata = os.fstat(stream.fileno())
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_mode & 0o077
+                or (hasattr(os, "geteuid") and metadata.st_uid != os.geteuid())
+            ):
+                raise ValueError
+            assignment = stream.read(16385)
+        if len(assignment) > 16384:
+            raise ValueError
+        words = shlex.split(assignment)
+        if words and words[0] == "export":
+            words = words[1:]
+        if len(words) != 1 or not words[0].startswith(f"{OAUTH_TOKEN_ENV}="):
+            raise ValueError
+        token = words[0].split("=", 1)[1].strip()
+        if not token or any(character.isspace() for character in token):
+            raise ValueError
+        return token
+    except (OSError, UnicodeError, ValueError):
+        raise ValueError("oauth_token_file_invalid") from None
+
+
 def verify_credentials_subscription() -> dict:
+    try:
+        if _subscription_token():
+            return {"ok": True, "subscription_type": "oauth_token"}
+    except ValueError:
+        return {"ok": False, "reason": "oauth_token_file_invalid"}
     if CREDENTIALS_PATH.exists():
         try:
             data = json.loads(CREDENTIALS_PATH.read_text(encoding="utf-8"))
@@ -232,6 +280,9 @@ def _scrubbed_env() -> dict[str, str]:
         result[key] = value
     for hostile in ENV_DENY_LIST:
         result.pop(hostile, None)
+    token = _subscription_token()
+    if token:
+        result[OAUTH_TOKEN_ENV] = token
     return _ensure_user_identity(result)
 
 

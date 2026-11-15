@@ -103,6 +103,9 @@ def _hermetic_default_paths(tmp_path_factory, monkeypatch: pytest.MonkeyPatch):
     # The operator's real IAI_MCP_STORE (e.g. after `iai lang add`) must never
     # leak model selection into hermetic tests.
     monkeypatch.delenv("IAI_MCP_STORE", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+    monkeypatch.delenv("IAI_MCP_CLAUDE_OAUTH_TOKEN_FILE", raising=False)
+    monkeypatch.setattr("iai_mcp.claude_cli._read_keychain_credentials", lambda: None)
     monkeypatch.setenv("IAI_DAEMON_SOCKET_PATH", str(fake_root / ".daemon.sock"))
     # Hermetic tests never probe PyPI: the notify-only version check honors
     # this kill switch everywhere (daemon tick, doctor, self-update).

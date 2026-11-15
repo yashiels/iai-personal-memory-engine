@@ -696,3 +696,81 @@ def test_login_marker_beyond_stdout_truncation_still_retries(
     assert result["ok"] is True
     assert result["bare_fallback_used"] is True
     assert len(calls) == 2
+
+
+@pytest.mark.parametrize("source", ["env", "file"])
+def test_oauth_token_subscription_and_subprocess(source, tmp_path, monkeypatch):
+    from iai_mcp import claude_cli
+
+    token = "fake-subscription-token"
+    if source == "env":
+        monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", token)
+    else:
+        token_file = tmp_path / "oauth-token.env"
+        token_file.write_text(f"export CLAUDE_CODE_OAUTH_TOKEN='{token}'\n")
+        token_file.chmod(0o600)
+        monkeypatch.setenv("IAI_MCP_CLAUDE_OAUTH_TOKEN_FILE", str(token_file))
+    result = claude_cli.verify_credentials_subscription()
+    assert result == {"ok": True, "subscription_type": "oauth_token"}
+    proc = _FakeProc(stdout=b'{"result":"ok"}')
+    capture = _install_subprocess_mock(monkeypatch, proc)
+    assert asyncio.run(claude_cli.invoke_claude_once("hello"))["ok"]
+    assert capture["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == token
+
+    def fake_run(cmd, **kwargs):
+        import subprocess
+
+        assert kwargs["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == token
+        return subprocess.CompletedProcess(cmd, 0, b'{"result":"ok"}', b"")
+
+    monkeypatch.setattr(claude_cli.subprocess, "run", fake_run)
+    assert claude_cli.invoke_claude_sync("hello")["ok"]
+
+
+@pytest.mark.parametrize("mode", [0o644, 0o640, 0o606])
+def test_oauth_token_file_refuses_insecure_permissions(mode, tmp_path, monkeypatch):
+    from iai_mcp import claude_cli
+
+    token_file = tmp_path / "oauth-token.env"
+    token_file.write_text("CLAUDE_CODE_OAUTH_TOKEN=fake-subscription-token")
+    token_file.chmod(mode)
+    monkeypatch.setenv("IAI_MCP_CLAUDE_OAUTH_TOKEN_FILE", str(token_file))
+    assert claude_cli.verify_credentials_subscription() == {
+        "ok": False,
+        "reason": "oauth_token_file_invalid",
+    }
+    with pytest.raises(ValueError, match="^oauth_token_file_invalid$"):
+        claude_cli._scrubbed_env()
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "",
+        "CLAUDE_CODE_OAUTH_TOKEN=",
+        "export CLAUDE_CODE_OAUTH_TOKEN='unterminated",
+        "CLAUDE_CODE_OAUTH_TOKEN=fake\nOTHER=value",
+        "OTHER=fake",
+    ],
+)
+def test_oauth_token_file_rejects_invalid_assignment(content, tmp_path, monkeypatch):
+    from iai_mcp import claude_cli
+
+    token_file = tmp_path / "oauth-token.env"
+    token_file.write_text(content)
+    token_file.chmod(0o600)
+    monkeypatch.setenv("IAI_MCP_CLAUDE_OAUTH_TOKEN_FILE", str(token_file))
+    assert claude_cli.verify_credentials_subscription() == {
+        "ok": False,
+        "reason": "oauth_token_file_invalid",
+    }
+
+
+def test_empty_oauth_env_uses_credentials(fake_creds, monkeypatch):
+    from iai_mcp import claude_cli
+
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "   ")
+    assert (
+        claude_cli.verify_credentials_subscription()["billing_type"]
+        == "stripe_subscription"
+    )
