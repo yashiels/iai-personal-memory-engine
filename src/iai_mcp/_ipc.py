@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 IS_WINDOWS: bool = platform.system() == "Windows"
+MAX_IPC_LINE_BYTES = 64 * 1024 * 1024
 
 _BASE_DIR: Path = Path.home() / ".iai-mcp"
 SOCKET_PATH: Path = _BASE_DIR / ".daemon.sock"  # POSIX only — kept for compatibility
@@ -251,12 +252,12 @@ async def open_ipc_connection(
             raise FileNotFoundError(
                 f"Daemon not running: {_port_file_path()} not found."
             )
-        coro = asyncio.open_connection("127.0.0.1", port)
+        coro = asyncio.open_connection("127.0.0.1", port, limit=MAX_IPC_LINE_BYTES)
     else:
         if addr is None:
             env = os.environ.get("IAI_DAEMON_SOCKET_PATH")
             addr = env if env else str(SOCKET_PATH)
-        coro = asyncio.open_unix_connection(str(addr))
+        coro = asyncio.open_unix_connection(str(addr), limit=MAX_IPC_LINE_BYTES)
 
     if timeout is not None:
         reader, writer = await asyncio.wait_for(coro, timeout=timeout)

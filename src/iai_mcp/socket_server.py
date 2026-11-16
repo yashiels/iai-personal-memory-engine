@@ -334,11 +334,15 @@ class SocketServer:
 
         # One JSON-RPC request is one line; a relayed document upload
         # (base64, ≤25 MB raw) must fit the StreamReader line buffer.
-        _line_limit = 64 * 1024 * 1024
-        from iai_mcp._ipc import IS_WINDOWS, start_ipc_server, shutdown_ipc
+        from iai_mcp._ipc import (
+            IS_WINDOWS,
+            MAX_IPC_LINE_BYTES,
+            shutdown_ipc,
+            start_ipc_server,
+        )
         if IS_WINDOWS:
             server, _actual_addr, _needs_cleanup = await start_ipc_server(
-                self.handle, socket_path, limit=_line_limit,
+                self.handle, socket_path, limit=MAX_IPC_LINE_BYTES,
             )
             try:
                 try:
@@ -358,7 +362,7 @@ class SocketServer:
             server = await asyncio.start_unix_server(
                 self.handle,
                 sock=inherited,
-                limit=_line_limit,
+                limit=MAX_IPC_LINE_BYTES,
             )
         else:
             cleanup_stale_socket(socket_path)
@@ -369,7 +373,7 @@ class SocketServer:
             server = await asyncio.start_unix_server(
                 self.handle,
                 path=str(socket_path),
-                limit=_line_limit,
+                limit=MAX_IPC_LINE_BYTES,
                 **server_kwargs,
             )
             try:
